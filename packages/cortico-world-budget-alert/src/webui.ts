@@ -10,6 +10,12 @@ interface ModelSpend {
   completionTokens: number;
   reasoningTokens: number;
   yuan: number | null;
+  knownYuan: number;
+  byCharges: number;
+  byPricing: number;
+  partial: number;
+  unpricedCalls: number;
+  reasons: string[];
 }
 
 type Status =
@@ -17,12 +23,14 @@ type Status =
     ok: true; date: string; spent: number; budget: number | null; remaining: number | null; ratio: number | null;
     alertAt: number[]; fired: number[]; byModel: Record<string, ModelSpend>; byHour: number[]; unpriced: string[];
     badLines: number; checkedAt: string;
+    basis: { charges: number; pricing: number; unpriced: number; partial: number };
   }
   | { ok: false; reason: string };
 
 interface Settings {
   dailyYuan: number;
   alertAt: number[];
+  usdToCny: number;
   pricingText: string;
   source: 'override' | 'default' | 'broken';
   pricingError?: string;
@@ -72,13 +80,18 @@ async function mountToday(ctx: WebUiPanelContext): Promise<void> {
       nodes.push(bar.el);
     }
     if (s.unpriced.length) {
-      nodes.push(ui.msgline(`这些模型在单价表里没有价格,没算进去,实际花费更高:${s.unpriced.join('、')}`, true));
+      const why = s.unpriced.map((k) => `${k}(${s.byModel[k]?.reasons.join(';') ?? ''})`).join('、');
+      nodes.push(ui.msgline(`有 ${s.basis.unpriced} 次调用算不出费用,没算进去,实际花费更高:${why}`, true));
     }
+    if (s.basis.partial) nodes.push(ui.msgline(`有 ${s.basis.partial} 次调用的 charges 不完整,按已知部分计,是下限`));
+    const basisLine = ui.msgline(`计费来源:按 provider 实扣 ${s.basis.charges} 次,按单价表 ${s.basis.pricing} 次`);
+    basisLine.classList.add('budgetwl-foot');
+    nodes.push(basisLine);
     if (s.badLines) nodes.push(ui.msgline(`账本里有 ${s.badLines} 行解析不了,已跳过`));
 
     const models = Object.entries(s.byModel).sort((a, b) => (b[1].yuan ?? Infinity) - (a[1].yuan ?? Infinity));
     nodes.push(ui.section('按模型'));
-    const t = ui.table({ head: ['模型', '调用', '输入', '其中命中缓存', '输出', '花费'] });
+    const t = ui.table({ head: ['模型', '调用', '输入', '其中命中缓存', '输出', '花费', '来源'] });
     if (!models.length) t.clear('今天还没有模型调用');
     for (const [name, m] of models) {
       t.addRow([
@@ -87,7 +100,8 @@ async function mountToday(ctx: WebUiPanelContext): Promise<void> {
         { text: ui.fmt.count(m.promptTokens), cls: 'mono' },
         { text: ui.fmt.count(m.cacheHitTokens), cls: 'mono' },
         { text: ui.fmt.count(m.completionTokens), cls: 'mono' },
-        { text: m.yuan === null ? '无单价' : yuan(m.yuan), cls: 'mono' },
+        { text: m.yuan === null ? `${yuan(m.knownYuan)} 起` : yuan(m.yuan), cls: 'mono' },
+        { text: [m.byCharges ? `实扣 ${m.byCharges}` : '', m.byPricing ? `单价表 ${m.byPricing}` : '', m.unpricedCalls ? `算不出 ${m.unpricedCalls}` : ''].filter(Boolean).join(',') },
       ]);
     }
     nodes.push(t.el);
@@ -133,11 +147,12 @@ async function mountSettings(ctx: WebUiPanelContext): Promise<void> {
 
   const daily = ui.input({ type: 'number', cls: 'mono' });
   const levels = ui.input({ cls: 'mono', placeholder: '80, 100' });
+  const usd = ui.input({ type: 'number', cls: 'mono', placeholder: '没设' });
   const budgetMsg = ui.msgline('');
   const saveBudget = ui.button('保存', { variant: 'primary', size: 'sm' });
   const budgetActs = ui.actions();
   budgetActs.append(saveBudget);
-  budgetSheet.body.append(ui.field('日预算(元)', daily), ui.field('告警线(百分比,逗号分隔)', levels), budgetMsg, budgetActs);
+  budgetSheet.body.append(ui.field('日预算(元)', daily), ui.field('告警线(百分比,逗号分隔)', levels), ui.field('美元汇率(1 美元 = ? 元,折算 provider 按美元实扣的费用)', usd), budgetMsg, budgetActs);
 
   const where = ui.msgline('');
   where.classList.add('budgetwl-path');
@@ -149,8 +164,8 @@ async function mountSettings(ctx: WebUiPanelContext): Promise<void> {
   priceActs.append(savePrice, resetPrice);
   priceSheet.body.append(where, pricing, priceMsg, priceActs);
 
-  let saved = { daily: '', levels: '', pricing: '' };
-  const dirty = () => daily.value !== saved.daily || levels.value !== saved.levels || pricing.value !== saved.pricing;
+  let saved = { daily: '', levels: '', usd: '', pricing: '' };
+  const dirty = () => daily.value !== saved.daily || levels.value !== saved.levels || usd.value !== saved.usd || pricing.value !== saved.pricing;
   ctx.guardLeave(() => (dirty() ? '设置还没保存,确定离开?' : null));
 
   async function load(): Promise<void> {
@@ -159,7 +174,8 @@ async function mountSettings(ctx: WebUiPanelContext): Promise<void> {
       daily.value = s.dailyYuan > 0 ? String(s.dailyYuan) : '';
       levels.value = s.alertAt.map((x) => String(Math.round(x * 10000) / 100)).join(', ');
       pricing.value = s.pricingText;
-      saved = { daily: daily.value, levels: levels.value, pricing: pricing.value };
+      usd.value = s.usdToCny > 0 ? String(s.usdToCny) : '';
+      saved = { daily: daily.value, levels: levels.value, usd: usd.value, pricing: pricing.value };
       where.textContent = s.source === 'override'
         ? `正在用本部署的单价表:${s.overridePath}`
         : s.source === 'broken'
@@ -189,7 +205,10 @@ async function mountSettings(ctx: WebUiPanelContext): Promise<void> {
     }
     const lock = ui.disable(saveBudget);
     try {
+      const rate = usd.value.trim() === '' ? 0 : Number(usd.value);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new Error('美元汇率要是 0 到 100 之间的数字,留空 = 不设');
       await ctx.invoke('saveBudget', [d, lv]);
+      await ctx.setConfig('world:budget-alert', { 'worlds.budget-alert.usdToCny': rate });
       ui.toast('已保存');
       await load();
       budgetMsg.textContent = '';

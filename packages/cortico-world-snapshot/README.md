@@ -10,16 +10,18 @@ Cortico World 扩展(api 6)。给工作区拍时间点快照,能列、能回滚�
 
 ## 工作区根与目录布局
 
-工作区根默认是部署目录(`config.json`、`data/`、`memory/` 所在的那一层),可以在配置里改成别的目录;相对路径按部署目录解析。
+工作区根默认是部署目录(`ctx.botDir`,`config.json` 所在的那一层),可以在配置里改成别的目录,比如只拍 `workspace/`;相对路径按部署目录解析。
 
 ```
 <工作区根>/snapshots/
   20261102-093015/
-    manifest.json      {id, createdAt, note, fileCount, totalBytes, sourceRoot, skipped[], complete, files[]}
+    manifest.json      {id, createdAt, note, fileCount, totalBytes, sourceRoot, tool, skipped[], complete, files[]}
     files/…            工作区文件的完整拷贝,保持原相对路径
   20261102-093015-2/   同一秒拍了第二份,加序号,不覆盖
   pre-restore-20261102-101200/   回滚前的自动备份
 ```
+
+`snapshots/` 里如果已经有别的工具留下的目录,本扩展不碰它们:只有 manifest 里带 `"tool": "cortico-world-snapshot"` 的才算本扩展的快照,别的目录不列出、不计入保留上限、不会被自动删除,`snapshot_delete` 和回滚也会拒绝。
 
 `manifest.json` 在拷贝之前先写一次(`complete: false`),全部拷完再补上实际统计并置 `complete: true`。拍到一半出错会把这份半成品整个删掉;如果进程在中途被杀,留下的目录在列表里标「不完整」,不能拿来回滚。
 
@@ -30,6 +32,7 @@ Cortico World 扩展(api 6)。给工作区拍时间点快照,能列、能回滚�
 | `<工作区根>/snapshots/` 整个目录 | 按**绝对路径**排除,不进快照,也不出现在 skipped 里 |
 | 名为 `node_modules`、`.git` 的目录或文件 | 跳过,记进 skipped |
 | 名字以 `tmp-` 开头的目录或文件 | 跳过,记进 skipped |
+| 名为 `.env` 或以 `.env.` 开头的文件,任何层级 | 含密钥,跳过,记进 skipped |
 | 单文件超过 100MB | 跳过,记进 skipped(带字节数) |
 | `archive/` 下单文件超过 50MB | 跳过,记进 skipped(带字节数) |
 | 符号链接 | 不跟随,记进 skipped |
@@ -46,12 +49,12 @@ Cortico World 扩展(api 6)。给工作区拍时间点快照,能列、能回滚�
 - 快照里有、工作区里没有:补上
 - 两边都有、内容不同(先比大小,再比 SHA-256):覆盖
 - 两边都有、内容相同:不动
-- 工作区里有、快照里没有:删除这个文件。只删快照当时也会拍进去的文件;`node_modules`、`.git`、`tmp-*`、超限文件和快照 skipped 里列出的路径都不碰
+- 工作区里有、快照里没有:删除这个文件。只删快照当时也会拍进去的文件;`node_modules`、`.git`、`tmp-*`、`.env*`、超限文件和快照 skipped 里列出的路径都不碰
 - 删完文件留下的空目录保留
 
 动手之前先校验快照里的每个路径:绝对路径、含 `..` 段、解析后跳出工作区或落进 `snapshots/` 的,整次回滚直接拒绝。写入和删除前还会对父目录取 realpath,防止工作区里的符号链接把写操作带到根外或快照目录里;这类文件记进回执的 `errors`,其余文件照常处理。
 
-回滚会改 `data/`、`memory/`、`config.json` 这些 bot 正在用的文件,**回滚完建议重启 bot**,否则进程里缓存的状态可能把旧内容再写回去。
+回滚会改 `data/`、`config.json` 这些 bot 正在用的文件,**回滚完建议重启 bot**,否则进程里缓存的状态可能把旧内容再写回去。
 
 ## 保留策略
 
@@ -73,7 +76,10 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
 npm test            # vitest,全部在临时目录里的假工作区上跑
 npm run check       # 以上全部 + 用 cortico 自带的 dry-mount 核对
+npm run verify      # 不重新打包,只核对:tsc、eslint、vitest、dry-mount、describe.json 一致
 ```
+
+检查脚本和测试都在安装包里。从安装包复现:解压或进到装好的包目录,`npm install` 装上 devDependencies,再跑 `npm run verify`。
 
 ## 许可
 

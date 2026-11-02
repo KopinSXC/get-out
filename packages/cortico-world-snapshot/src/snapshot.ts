@@ -22,6 +22,10 @@ export const SNAPSHOTS_DIRNAME = 'snapshots';
 /** 按名字跳过的目录或文件。 */
 const SKIP_NAMES = new Set(['node_modules', '.git']);
 const SKIP_PREFIX = 'tmp-';
+/** 含密钥的环境文件:.env 与 .env.*,任何层级都不拷。 */
+const isEnvFile = (name: string) => name === '.env' || name.startsWith('.env.');
+/** 写进 manifest 的归属标记;不带它的目录不是本扩展拍的,列表、保留策略、删除一律不碰。 */
+export const MANIFEST_TOOL = 'cortico-world-snapshot';
 export const PRE_RESTORE_PREFIX = 'pre-restore-';
 const ID_SHAPE = /^(pre-restore-)?\d{8}-\d{6}(-\d+)?$/;
 const MANIFEST = 'manifest.json';
@@ -47,6 +51,8 @@ export interface Manifest {
   fileCount: number;
   totalBytes: number;
   sourceRoot: string;
+  /** 归属标记,恒为 MANIFEST_TOOL。 */
+  tool: typeof MANIFEST_TOOL;
   skipped: SkippedEntry[];
   /** 拷贝完成前为 false;回滚拒绝未完成的快照。 */
   complete: boolean;
@@ -231,6 +237,10 @@ export class SnapshotStore {
           skipped.push({ path: rel, reason: '按规则跳过(node_modules / .git / tmp-*)' });
           continue;
         }
+        if (isEnvFile(ent.name)) {
+          skipped.push({ path: rel, reason: '环境文件含密钥,不拷(.env / .env.*)' });
+          continue;
+        }
         if (ent.isSymbolicLink()) {
           skipped.push({ path: rel, reason: '符号链接不跟随' });
           continue;
@@ -295,6 +305,7 @@ export class SnapshotStore {
         fileCount: files.length,
         totalBytes: files.reduce((s, f) => s + f.bytes, 0),
         sourceRoot: this.root,
+        tool: MANIFEST_TOOL,
         skipped,
         complete: false,
         files,
@@ -339,10 +350,15 @@ export class SnapshotStore {
     const raw = await readFile(resolve(dir, MANIFEST), 'utf8');
     const m = JSON.parse(raw) as Manifest;
     if (!m || typeof m !== 'object' || !Array.isArray(m.files)) throw new Error(`manifest 格式不对: ${id}`);
+    if (m.tool !== MANIFEST_TOOL) throw new Error(`${id} 不是本扩展拍的快照,不碰`);
     return { ...m, id };
   }
 
-  /** 全部快照(含 pre-restore-*),按创建时间倒序。读不了 manifest 的目录照样列出,标为未完成。 */
+  /**
+   * 本扩展拍的全部快照(含 pre-restore-*),按创建时间倒序。
+   * snapshots/ 里可能有别的工具留下的目录:manifest 读不出或没有归属标记的一律跳过,
+   * 所以也不会被保留策略删掉。拍到一半中断的快照 manifest 已带标记,会列出并标为不完整。
+   */
   private async all(): Promise<SnapshotSummary[]> {
     let entries;
     try {
@@ -362,7 +378,7 @@ export class SnapshotStore {
           fileCount: m.fileCount, totalBytes: m.totalBytes, preRestore, complete: m.complete === true,
         });
       } catch {
-        out.push({ id: ent.name, createdAt: '', fileCount: 0, totalBytes: 0, preRestore, complete: false });
+        // 不是本扩展的,或 manifest 坏了:不列出,也不参与保留策略
       }
     }
     // createdAt 相同(或缺失)时按 id 排;id 里的时间与序号同样是递增的
@@ -398,6 +414,7 @@ export class SnapshotStore {
       if (!isValidId(id)) throw new Error(`快照 id 格式不对: ${String(id)}`);
       const dir = safeJoin(this.snapshotsDir, id);
       if ((await kindOf(dir)) !== 'dir') throw new Error(`没有这个快照: ${id}`);
+      await this.readManifest(id);
       await rm(dir, { recursive: true, force: true });
       return { id, deleted: true as const };
     });

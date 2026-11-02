@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "budget_status",
-      "description": "查今天(部署时区)的模型花费:spent 已花、budget 日预算、remaining 剩余(人民币元),byModel 按模型拆分,byHour 是 24 小时每小时花费。数据来自本机 usage 账本,按单价表折算;没有单价的模型列在 unpriced 里,不计入 spent。账本不存在或格式坏了时返回 ok:false 和原因。",
+      "description": "查今天(部署时区)的模型花费:spent 已花、budget 日预算、remaining 剩余(人民币元),byModel 按模型拆分,byHour 是 24 小时每小时花费。数据来自本机 usage 账本:记录里有 provider 实扣的 charges 就按它(美元按配置的汇率折算),没有才按单价表折算;算不出的模型列在 unpriced 里,不计入 spent。basis 给出各种计费方式的调用数。账本不存在或格式坏了时返回 ok:false 和原因。",
       "parameters": {
         "type": "object",
         "properties": {},

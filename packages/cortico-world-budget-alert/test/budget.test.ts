@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorldHost } from 'cortico/core/types.ts';
-import { LedgerReader, costOf, evaluate, normalizeLevels, parseLine, parsePricing, priceFor } from '../src/budget.ts';
+import { LedgerReader, aggregate, costOf, evaluate, normalizeLevels, parseLine, parsePricing, priceFor } from '../src/budget.ts';
 import { BudgetWorld, EVENT_TYPE, defaultConfig, type BudgetConfig } from '../src/world.ts';
 
 const TZ = 'Asia/Shanghai';
@@ -37,13 +37,68 @@ describe('单价', () => {
     const r = parseLine(rec({ cacheHitTokens: 400_000 }));
     if (typeof r === 'string') throw new Error(r);
     // 60 万 * 2 + 40 万 * 0.5 + 100 万 * 8 = 1.2 + 0.2 + 8
-    expect(costOf(r, table)).toBeCloseTo(9.4, 6);
+    expect(costOf(r, table).yuan).toBeCloseTo(9.4, 6);
+    expect(costOf(r, table).basis).toBe('pricing');
   });
 
   it('单价表校验', () => {
     expect(() => parsePricing({ models: { a: { input: -1, output: 1 } } })).toThrow();
     expect(() => parsePricing([])).toThrow();
     expect(parsePricing({ models: { a: { input: 1, output: 2 } } }).models.a.cacheHit).toBe(1);
+  });
+});
+
+/** 一笔 charge,形状同 cortico 的 Charge。 */
+const charge = (currency: string, knownAmount: number, amount: number | null = knownAmount) => ({
+  quote: { id: 'q', currency, basis: 'marginal', source: 's', capturedAt: '2026-11-01T00:00:00Z' },
+  amount, knownAmount, missing: [], lines: [],
+});
+
+describe('charges 优先于单价表', () => {
+  const parse = (over: Record<string, unknown>) => {
+    const r = parseLine(rec(over));
+    if (typeof r === 'string') throw new Error(r);
+    return r;
+  };
+
+  it('有美元 charges 就按汇率折算,不看单价表', () => {
+    const r = parse({ attempt: { id: 'a1', charges: [charge('USD', 0.01)] } });
+    const c = costOf(r, table, { USD: 7 });
+    expect(c).toMatchObject({ basis: 'charges', partial: false });
+    expect(c.yuan).toBeCloseTo(0.07, 9);
+  });
+
+  it('attempt.charges 优先于记录上的 charges', () => {
+    const r = parse({ attempt: { id: 'a2', charges: [charge('CNY', 1)] }, charges: [charge('CNY', 99)] });
+    expect(costOf(r, table).yuan).toBe(1);
+  });
+
+  it('没有汇率时算不出,也不回落到单价表', () => {
+    const r = parse({ charges: [charge('USD', 0.01)] });
+    expect(costOf(r, table)).toMatchObject({ yuan: null, basis: 'charges', reason: 'USD 没有设汇率' });
+  });
+
+  it('charges 为空数组时回落到单价表;amount 为 null 记为部分', () => {
+    expect(costOf(parse({ charges: [] }), table).basis).toBe('pricing');
+    const p = costOf(parse({ charges: [charge('CNY', 0.5, null)] }), table);
+    expect(p).toMatchObject({ yuan: 0.5, partial: true });
+  });
+
+  it('charges 形状不对的行算坏行', () => {
+    expect(parseLine(rec({ charges: [{ amount: 1 }] }))).toBe('bad');
+    expect(parseLine(rec({ charges: 'x' }))).toBe('bad');
+  });
+
+  it('聚合里分开统计来源', () => {
+    const recs = [
+      parse({ charges: [charge('USD', 1)] }),
+      parse({}),
+      parse({ model: 'nope' }),
+    ].map((r) => ({ ...r, hour: 10 }));
+    const d = aggregate('2026-11-02', recs, table, { USD: 7 });
+    expect(d.basis).toEqual({ charges: 1, pricing: 1, unpriced: 1, partial: 0 });
+    expect(d.spent).toBeCloseTo(7 + 10, 4);
+    expect(d.unpriced).toEqual(['nope']);
   });
 });
 

@@ -59,9 +59,21 @@ export function priceFor(table: PricingTable, model: string): ModelPrice | null 
 // 账本记录
 // ---------------------------------------------------------------------------
 
+/** 一条记录里 provider 实扣的一笔费用(来自 attempt.charges 或 charges)。 */
+export interface LineCharge {
+  /** PriceSnapshot.currency,如 USD、CNY。 */
+  currency: string;
+  /** Charge.knownAmount:能算出来的部分。 */
+  amount: number;
+  /** Charge.amount 为 null:有计量项没有价,amount 只是下限。 */
+  partial: boolean;
+}
+
 /** 账本一行里用得到的字段。 */
 export interface UsageLine {
   id?: string;
+  /** 有就按它计费;空数组或缺省才回落到单价表。 */
+  charges?: LineCharge[];
   ts: string;
   model: string;
   promptTokens: number;
@@ -71,6 +83,22 @@ export interface UsageLine {
 }
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+
+/** 与 cortico 的 recordCharges 同一取法:attempt.charges 优先,其次记录上的 charges。 */
+function chargesOf(r: Record<string, unknown>): LineCharge[] | 'bad' | undefined {
+  const attempt = r.attempt as { charges?: unknown } | undefined;
+  const raw = attempt?.charges ?? r.charges;
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) return 'bad';
+  const out: LineCharge[] = [];
+  for (const c of raw as Array<Record<string, unknown>>) {
+    const quote = c?.quote as { currency?: unknown } | undefined;
+    const known = num(c?.knownAmount);
+    if (typeof quote?.currency !== 'string' || known === null) return 'bad';
+    out.push({ currency: quote.currency.toUpperCase(), amount: known, partial: c.amount === null });
+  }
+  return out;
+}
 
 /** 一行 → 记录;空行返回 'blank',解析不了或缺字段返回 'bad'。 */
 export function parseLine(line: string): UsageLine | 'blank' | 'bad' {
@@ -89,8 +117,11 @@ export function parseLine(line: string): UsageLine | 'blank' | 'bad' {
   if (Number.isNaN(Date.parse(r.ts))) return 'bad';
   const attempt = r.attempt as { id?: unknown } | undefined;
   const id = typeof r.recordId === 'string' ? r.recordId : typeof attempt?.id === 'string' ? attempt.id : undefined;
+  const charges = chargesOf(r);
+  if (charges === 'bad') return 'bad';
   return {
     ...(id ? { id } : {}),
+    ...(charges && charges.length ? { charges } : {}),
     ts: r.ts,
     model: r.model,
     promptTokens: prompt,
@@ -100,12 +131,41 @@ export function parseLine(line: string): UsageLine | 'blank' | 'bad' {
   };
 }
 
-/** 一条记录的费用;单价表里没有这个模型返回 null。reasoningTokens 已含在 completionTokens 里,不重复计。 */
-export function costOf(rec: UsageLine, table: PricingTable): number | null {
+/** 币种 → 1 单位折合多少人民币。CNY 恒为 1。 */
+export type Rates = Readonly<Record<string, number>>;
+
+export interface Cost {
+  /** 人民币元;null = 算不出来(没有单价,或币种没有汇率),不计入 spent。 */
+  yuan: number | null;
+  basis: 'charges' | 'pricing';
+  /** 按 charges 算,但有计量项没有价:yuan 只是下限。 */
+  partial: boolean;
+  /** yuan 为 null 时的原因。 */
+  reason?: string;
+}
+
+/**
+ * 一条记录的费用。有 charges 就用 charges(provider 实扣,按汇率折成人民币);
+ * 没有才按单价表和 token 数算。reasoningTokens 已含在 completionTokens 里,不重复计。
+ */
+export function costOf(rec: UsageLine, table: PricingTable, rates: Rates = {}): Cost {
+  if (rec.charges?.length) {
+    let yuan = 0;
+    let partial = false;
+    for (const c of rec.charges) {
+      const rate = c.currency === 'CNY' ? 1 : rates[c.currency];
+      if (!(typeof rate === 'number' && rate > 0)) {
+        return { yuan: null, basis: 'charges', partial: false, reason: `${c.currency} 没有设汇率` };
+      }
+      yuan += c.amount * rate;
+      partial ||= c.partial;
+    }
+    return { yuan, basis: 'charges', partial };
+  }
   const p = priceFor(table, rec.model);
-  if (!p) return null;
+  if (!p) return { yuan: null, basis: 'pricing', partial: false, reason: '单价表里没有这个模型' };
   const miss = Math.max(0, rec.promptTokens - rec.cacheHitTokens);
-  return (miss * p.input + rec.cacheHitTokens * p.cacheHit + rec.completionTokens * p.output) / 1e6;
+  return { yuan: (miss * p.input + rec.cacheHitTokens * p.cacheHit + rec.completionTokens * p.output) / 1e6, basis: 'pricing', partial: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -285,8 +345,19 @@ export interface ModelSpend {
   cacheHitTokens: number;
   completionTokens: number;
   reasoningTokens: number;
-  /** null = 单价表里没有这个模型,费用不计入 spent。 */
+  /** null = 至少有一次调用算不出费用,这个模型的费用不完整;能算出的部分仍计入 spent。 */
   yuan: number | null;
+  /** 能算出来的那部分,yuan 为 null 时也有。 */
+  knownYuan: number;
+  /** 按 charges 计费的调用数。 */
+  byCharges: number;
+  /** 按单价表计费的调用数。 */
+  byPricing: number;
+  /** charges 不完整(只是下限)的调用数。 */
+  partial: number;
+  /** 算不出费用的调用数与原因。 */
+  unpricedCalls: number;
+  reasons: string[];
 }
 
 export interface DaySpend {
@@ -295,44 +366,59 @@ export interface DaySpend {
   byModel: Record<string, ModelSpend>;
   /** 24 个小时,每小时花了多少(部署时区)。 */
   byHour: number[];
-  /** 没有单价的模型;spent 不含它们,所以实际花费更高。 */
+  /** 有调用算不出费用的模型;spent 不含那些调用,所以实际花费更高。 */
   unpriced: string[];
+  /** 按 charges / 单价表 / 算不出 的调用数。 */
+  basis: { charges: number; pricing: number; unpriced: number; partial: number };
 }
 
 const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
-export function aggregate(date: string, records: readonly (UsageLine & { hour: number })[], table: PricingTable): DaySpend {
+export function aggregate(
+  date: string, records: readonly (UsageLine & { hour: number })[], table: PricingTable, rates: Rates = {},
+): DaySpend {
   const byModel: Record<string, ModelSpend> = {};
   const byHour = Array.from({ length: 24 }, () => 0);
+  const basis = { charges: 0, pricing: 0, unpriced: 0, partial: 0 };
   let spent = 0;
   for (const r of records) {
     const m = (byModel[r.model] ??= {
-      calls: 0, promptTokens: 0, cacheHitTokens: 0, completionTokens: 0, reasoningTokens: 0, yuan: 0,
+      calls: 0, promptTokens: 0, cacheHitTokens: 0, completionTokens: 0, reasoningTokens: 0,
+      yuan: 0, knownYuan: 0, byCharges: 0, byPricing: 0, partial: 0, unpricedCalls: 0, reasons: [],
     });
     m.calls++;
     m.promptTokens += r.promptTokens;
     m.cacheHitTokens += r.cacheHitTokens;
     m.completionTokens += r.completionTokens;
     m.reasoningTokens += r.reasoningTokens;
-    const c = costOf(r, table);
-    if (c === null) {
+    const c = costOf(r, table, rates);
+    if (c.yuan === null) {
       m.yuan = null;
+      m.unpricedCalls++;
+      basis.unpriced++;
+      if (c.reason && !m.reasons.includes(c.reason)) m.reasons.push(c.reason);
       continue;
     }
-    if (m.yuan !== null) m.yuan += c;
-    spent += c;
-    byHour[r.hour] += c;
+    if (c.basis === 'charges') { m.byCharges++; basis.charges++; } else { m.byPricing++; basis.pricing++; }
+    if (c.partial) { m.partial++; basis.partial++; }
+    m.knownYuan += c.yuan;
+    if (m.yuan !== null) m.yuan += c.yuan;
+    spent += c.yuan;
+    byHour[r.hour] += c.yuan;
   }
-  for (const m of Object.values(byModel)) if (m.yuan !== null) m.yuan = round4(m.yuan);
+  for (const m of Object.values(byModel)) {
+    m.knownYuan = round4(m.knownYuan);
+    if (m.yuan !== null) m.yuan = round4(m.yuan);
+  }
   return {
     date,
     spent: round4(spent),
     byModel,
     byHour: byHour.map(round4),
     unpriced: Object.entries(byModel).filter(([, m]) => m.yuan === null).map(([k]) => k).sort(),
+    basis,
   };
 }
-
 // ---------------------------------------------------------------------------
 // 告警线
 // ---------------------------------------------------------------------------

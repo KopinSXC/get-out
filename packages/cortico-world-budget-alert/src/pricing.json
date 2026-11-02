@@ -1,5 +1,5 @@
 {
-  "note": "单位:人民币元 / 百万 token。input = 未命中缓存的输入,cacheHit = 命中缓存的输入,output = 输出(含推理)。以下是示例价格,装好后请按你自己的账单在面板里改。模型名可用 * 结尾做前缀匹配,精确名优先。",
+  "note": "只给没有 charges 的账本记录用;有 charges 的按 provider 实扣算。单位:人民币元 / 百万 token。input = 未命中缓存的输入,cacheHit = 命中缓存的输入,output = 输出(含推理)。以下是示例价格,装好后请按你自己的账单在面板里改。模型名可用 * 结尾做前缀匹配,精确名优先。",
   "models": {
     "deepseek-chat": { "input": 2, "cacheHit": 0.2, "output": 3 },
     "deepseek-reasoner": { "input": 2, "cacheHit": 0.2, "output": 3 },

@@ -1,18 +1,39 @@
 {
   "name": "cortico-world-budget-alert",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "读本机 usage 账本算今天花了多少钱,超阈值发提醒。不联网、不用 API Key。",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
-  "engines": { "node": ">=22" },
-  "keywords": ["cortico-world", "budget", "usage", "cost"],
-  "files": ["src", "dist", "describe.json", "README.md", "CHANGELOG.md", "LICENSE"],
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "cortico-world",
+    "budget",
+    "usage",
+    "cost"
+  ],
+  "files": [
+    "src",
+    "dist",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "scripts",
+    "test",
+    "tsconfig.json",
+    "eslint.config.js"
+  ],
   "cortico": {
     "kind": "world",
     "api": 6,
     "displayName": "预算告警",
-    "tags": ["utility", "monitoring"],
+    "tags": [
+      "utility",
+      "monitoring"
+    ],
     "describe": "describe.json",
     "webUiClient": "./dist/webui.js",
     "webUiStyle": "./dist/webui.css"
@@ -22,7 +43,8 @@
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "npm run build && npm run typecheck && npm run lint && npm test && tsx scripts/check-extension.ts"
+    "check": "npm run build && npm run typecheck && npm run lint && npm test && tsx scripts/check-extension.ts",
+    "verify": "tsc --noEmit -p . && eslint . && vitest run && tsx scripts/check-extension.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

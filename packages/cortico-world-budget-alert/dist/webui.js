@@ -39,12 +39,17 @@ async function mountToday(ctx) {
       nodes.push(bar.el);
     }
     if (s.unpriced.length) {
-      nodes.push(ui.msgline(`\u8FD9\u4E9B\u6A21\u578B\u5728\u5355\u4EF7\u8868\u91CC\u6CA1\u6709\u4EF7\u683C,\u6CA1\u7B97\u8FDB\u53BB,\u5B9E\u9645\u82B1\u8D39\u66F4\u9AD8:${s.unpriced.join("\u3001")}`, true));
+      const why = s.unpriced.map((k) => `${k}(${s.byModel[k]?.reasons.join(";") ?? ""})`).join("\u3001");
+      nodes.push(ui.msgline(`\u6709 ${s.basis.unpriced} \u6B21\u8C03\u7528\u7B97\u4E0D\u51FA\u8D39\u7528,\u6CA1\u7B97\u8FDB\u53BB,\u5B9E\u9645\u82B1\u8D39\u66F4\u9AD8:${why}`, true));
     }
+    if (s.basis.partial) nodes.push(ui.msgline(`\u6709 ${s.basis.partial} \u6B21\u8C03\u7528\u7684 charges \u4E0D\u5B8C\u6574,\u6309\u5DF2\u77E5\u90E8\u5206\u8BA1,\u662F\u4E0B\u9650`));
+    const basisLine = ui.msgline(`\u8BA1\u8D39\u6765\u6E90:\u6309 provider \u5B9E\u6263 ${s.basis.charges} \u6B21,\u6309\u5355\u4EF7\u8868 ${s.basis.pricing} \u6B21`);
+    basisLine.classList.add("budgetwl-foot");
+    nodes.push(basisLine);
     if (s.badLines) nodes.push(ui.msgline(`\u8D26\u672C\u91CC\u6709 ${s.badLines} \u884C\u89E3\u6790\u4E0D\u4E86,\u5DF2\u8DF3\u8FC7`));
     const models = Object.entries(s.byModel).sort((a, b) => (b[1].yuan ?? Infinity) - (a[1].yuan ?? Infinity));
     nodes.push(ui.section("\u6309\u6A21\u578B"));
-    const t = ui.table({ head: ["\u6A21\u578B", "\u8C03\u7528", "\u8F93\u5165", "\u5176\u4E2D\u547D\u4E2D\u7F13\u5B58", "\u8F93\u51FA", "\u82B1\u8D39"] });
+    const t = ui.table({ head: ["\u6A21\u578B", "\u8C03\u7528", "\u8F93\u5165", "\u5176\u4E2D\u547D\u4E2D\u7F13\u5B58", "\u8F93\u51FA", "\u82B1\u8D39", "\u6765\u6E90"] });
     if (!models.length) t.clear("\u4ECA\u5929\u8FD8\u6CA1\u6709\u6A21\u578B\u8C03\u7528");
     for (const [name, m] of models) {
       t.addRow([
@@ -53,7 +58,8 @@ async function mountToday(ctx) {
         { text: ui.fmt.count(m.promptTokens), cls: "mono" },
         { text: ui.fmt.count(m.cacheHitTokens), cls: "mono" },
         { text: ui.fmt.count(m.completionTokens), cls: "mono" },
-        { text: m.yuan === null ? "\u65E0\u5355\u4EF7" : yuan(m.yuan), cls: "mono" }
+        { text: m.yuan === null ? `${yuan(m.knownYuan)} \u8D77` : yuan(m.yuan), cls: "mono" },
+        { text: [m.byCharges ? `\u5B9E\u6263 ${m.byCharges}` : "", m.byPricing ? `\u5355\u4EF7\u8868 ${m.byPricing}` : "", m.unpricedCalls ? `\u7B97\u4E0D\u51FA ${m.unpricedCalls}` : ""].filter(Boolean).join(",") }
       ]);
     }
     nodes.push(t.el);
@@ -94,11 +100,12 @@ async function mountSettings(ctx) {
   ctx.root.append(budgetSheet.el, priceSheet.el);
   const daily = ui.input({ type: "number", cls: "mono" });
   const levels = ui.input({ cls: "mono", placeholder: "80, 100" });
+  const usd = ui.input({ type: "number", cls: "mono", placeholder: "\u6CA1\u8BBE" });
   const budgetMsg = ui.msgline("");
   const saveBudget = ui.button("\u4FDD\u5B58", { variant: "primary", size: "sm" });
   const budgetActs = ui.actions();
   budgetActs.append(saveBudget);
-  budgetSheet.body.append(ui.field("\u65E5\u9884\u7B97(\u5143)", daily), ui.field("\u544A\u8B66\u7EBF(\u767E\u5206\u6BD4,\u9017\u53F7\u5206\u9694)", levels), budgetMsg, budgetActs);
+  budgetSheet.body.append(ui.field("\u65E5\u9884\u7B97(\u5143)", daily), ui.field("\u544A\u8B66\u7EBF(\u767E\u5206\u6BD4,\u9017\u53F7\u5206\u9694)", levels), ui.field("\u7F8E\u5143\u6C47\u7387(1 \u7F8E\u5143 = ? \u5143,\u6298\u7B97 provider \u6309\u7F8E\u5143\u5B9E\u6263\u7684\u8D39\u7528)", usd), budgetMsg, budgetActs);
   const where = ui.msgline("");
   where.classList.add("budgetwl-path");
   const pricing = ui.textarea({ rows: 14, cls: "mono" });
@@ -108,8 +115,8 @@ async function mountSettings(ctx) {
   const priceActs = ui.actions();
   priceActs.append(savePrice, resetPrice);
   priceSheet.body.append(where, pricing, priceMsg, priceActs);
-  let saved = { daily: "", levels: "", pricing: "" };
-  const dirty = () => daily.value !== saved.daily || levels.value !== saved.levels || pricing.value !== saved.pricing;
+  let saved = { daily: "", levels: "", usd: "", pricing: "" };
+  const dirty = () => daily.value !== saved.daily || levels.value !== saved.levels || usd.value !== saved.usd || pricing.value !== saved.pricing;
   ctx.guardLeave(() => dirty() ? "\u8BBE\u7F6E\u8FD8\u6CA1\u4FDD\u5B58,\u786E\u5B9A\u79BB\u5F00?" : null);
   async function load() {
     try {
@@ -117,7 +124,8 @@ async function mountSettings(ctx) {
       daily.value = s.dailyYuan > 0 ? String(s.dailyYuan) : "";
       levels.value = s.alertAt.map((x) => String(Math.round(x * 1e4) / 100)).join(", ");
       pricing.value = s.pricingText;
-      saved = { daily: daily.value, levels: levels.value, pricing: pricing.value };
+      usd.value = s.usdToCny > 0 ? String(s.usdToCny) : "";
+      saved = { daily: daily.value, levels: levels.value, usd: usd.value, pricing: pricing.value };
       where.textContent = s.source === "override" ? `\u6B63\u5728\u7528\u672C\u90E8\u7F72\u7684\u5355\u4EF7\u8868:${s.overridePath}` : s.source === "broken" ? `\u672C\u90E8\u7F72\u7684\u5355\u4EF7\u8868\u6709\u95EE\u9898:${s.pricingError ?? ""}` : "\u6B63\u5728\u7528\u5305\u91CC\u81EA\u5E26\u7684\u793A\u4F8B\u5355\u4EF7\u8868;\u4FDD\u5B58\u540E\u4F1A\u53E6\u5B58\u4E00\u4EFD\u5230\u672C\u90E8\u7F72,\u5347\u7EA7\u6269\u5C55\u4E0D\u4F1A\u8986\u76D6";
       where.classList.toggle("bad", s.source === "broken");
       priceMsg.textContent = `\u8D26\u672C:${s.ledgerPath}`;
@@ -142,7 +150,10 @@ async function mountSettings(ctx) {
     }
     const lock = ui.disable(saveBudget);
     try {
+      const rate = usd.value.trim() === "" ? 0 : Number(usd.value);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new Error("\u7F8E\u5143\u6C47\u7387\u8981\u662F 0 \u5230 100 \u4E4B\u95F4\u7684\u6570\u5B57,\u7559\u7A7A = \u4E0D\u8BBE");
       await ctx.invoke("saveBudget", [d, lv]);
+      await ctx.setConfig("world:budget-alert", { "worlds.budget-alert.usdToCny": rate });
       ui.toast("\u5DF2\u4FDD\u5B58");
       await load();
       budgetMsg.textContent = "";

@@ -31,6 +31,8 @@ beforeEach(async () => {
   await put('node_modules/dep/index.js', 'no');
   await put('tmp-cache/t', 'no');
   await put('deep/snapshots/keep.txt', '别处的 snapshots 照常拷');
+  await put('.env', 'SECRET=1');
+  await put('data/.env.local', 'SECRET=2');
 });
 
 afterEach(async () => {
@@ -58,7 +60,7 @@ describe('create', () => {
     expect(paths).toEqual(['blobs/x.bin', 'deep/snapshots/keep.txt', 'memory/m.json', 'notes/a.md']);
     expect(m1.complete).toBe(true);
     expect(m1.sourceRoot).toBe(root);
-    expect(m1.skipped.map((x: { path: string }) => x.path).sort()).toEqual(['node_modules', 'tmp-cache']);
+    expect(m1.skipped.map((x: { path: string }) => x.path).sort()).toEqual(['.env', 'data/.env.local', 'node_modules', 'tmp-cache']);
 
     // 第二份不应包含第一份
     tick();
@@ -102,6 +104,36 @@ describe('create', () => {
     const ids = (await s.list()).map((x) => x.id);
     expect(ids.filter((i) => i.startsWith('pre-restore-'))).toHaveLength(1);
     expect(ids.filter((i) => !i.startsWith('pre-restore-'))).toHaveLength(2);
+  });
+});
+
+describe('snapshots/ 里别人的目录', () => {
+  it('不列出、不按保留策略删、不能删', async () => {
+    max = 1;
+    await put('snapshots/20200101-000000/files/x', '别的工具的');
+    await put('snapshots/20200101-000001/manifest.json', JSON.stringify({ files: [], createdAt: '2020-01-01T00:00:00Z' }));
+    const s = store();
+    await s.create();
+    tick();
+    await s.create();
+    const ids = (await s.list()).map((x) => x.id);
+    expect(ids).toEqual(['20261102-090001']);
+    const left = (await readdir(join(root, 'snapshots'))).sort();
+    expect(left).toEqual(['20200101-000000', '20200101-000001', '20261102-090001']);
+    await expect(s.delete('20200101-000001')).rejects.toThrow(/不是本扩展/);
+    await expect(s.restore('20200101-000001')).rejects.toThrow(/不是本扩展/);
+  });
+});
+
+describe('回滚不碰 .env', () => {
+  it('.env 既不进快照,也不会被回滚删掉或覆盖', async () => {
+    const s = store();
+    const snap = await s.create();
+    tick();
+    await put('.env', 'SECRET=changed');
+    const r = await s.restore(snap.id);
+    expect(r.removed).not.toContain('.env');
+    expect(await readFile(join(root, '.env'), 'utf8')).toBe('SECRET=changed');
   });
 });
 

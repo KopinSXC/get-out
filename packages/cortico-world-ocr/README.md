@@ -102,7 +102,10 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
 npm test            # vitest:坐标换算、合并、查找、截断,以及 ocr.ps1 带 BOM
 npm run check       # 以上全部 + 用 cortico 自带的 dry-mount 核对
+npm run verify      # 不重新打包,只核对:tsc、eslint、vitest、dry-mount、describe.json 一致
 ```
+
+检查脚本和测试都在安装包里。从安装包复现:解压或进到装好的包目录,`npm install` 装上 devDependencies,再跑 `npm run verify`。
 
 `src/ocr.ps1` 必须保存为带 BOM 的 UTF-8:Windows PowerShell 5.1 会把不带 BOM 的脚本按系统 ANSI 代码页读,里面的中文提示会乱码。测试会检查这一点。
 

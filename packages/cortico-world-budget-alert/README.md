@@ -19,12 +19,13 @@ Cortico World 扩展(api 6)。读本机的 usage 账本,按单价表算出今天
   "byModel": { "deepseek-chat": { "calls": 41, "promptTokens": 912000, "cacheHitTokens": 600000, "completionTokens": 88000, "reasoningTokens": 0, "yuan": 0.9480 } },
   "byHour": [0, 0, 0, 0, 0, 0, 0, 0, 0.12, 1.9, "…共 24 项"],
   "unpriced": [],
+  "basis": { "charges": 41, "pricing": 0, "unpriced": 0, "partial": 0 },
   "badLines": 0,
   "checkedAt": "2026-11-02T14:03:10.000+08:00"
 }
 ```
 
-`budget` 为 `null` 表示还没设日预算,这时不告警。`unpriced` 里的模型在单价表里找不到价格,不计入 `spent`,所以实际花费比显示的高。
+`budget` 为 `null` 表示还没设日预算,这时不告警。`unpriced` 里的模型至少有一次调用算不出费用(单价表里没有,或 charges 的币种没设汇率),那些调用不计入 `spent`,所以实际花费比显示的高;`byModel[模型].reasons` 写着原因。`basis` 是按 provider 实扣、按单价表、算不出这三种情况各有多少次调用。
 
 **`budget_set {dailyYuan, alertAt?}`**:设日预算(人民币元)和告警线。`alertAt` 是占预算的比例,1.0 = 100%,缺省 `[0.8, 1.0]`;不给就保留现在的。设完立刻重新检查一次,如果已经越过新的线,会马上提醒。
 
@@ -44,6 +45,7 @@ Cortico World 扩展(api 6)。读本机的 usage 账本,按单价表算出今天
 | `cacheHitTokens` | 其中命中缓存的部分;未命中 = `promptTokens - cacheHitTokens` |
 | `completionTokens` | 输出总量 |
 | `reasoningTokens` | 只用于展示。它是 `completionTokens` 的一部分,不会重复计费 |
+| `attempt.charges` / `charges` | provider 实扣的费用,有就优先用它,见下一节 |
 
 另外按 `recordId` 去重:Core 写盘失败重试时可能留下重复行,同一条只算一次。
 
@@ -51,9 +53,21 @@ Cortico World 扩展(api 6)。读本机的 usage 账本,按单价表算出今天
 
 坏行的处理:Core 本身就允许账本里偶尔有一行写撕了(进程中途被杀),这种零星坏行会跳过并在 `badLines` 里计数。坏行超过 5%(且至少 3 行),或者整份账本没有一行能解析,就判定格式坏了,返回 `ok:false`。
 
+## 怎么计费
+
+每条记录按这个顺序算:
+
+1. **有 charges 就用 charges。** 取法和 cortico 自己的 `recordCharges` 一样:先看 `attempt.charges`,没有再看记录上的 `charges`。每笔取 `knownAmount`,按 `quote.currency` 折成人民币:CNY 直接用,USD 乘以配置里的「美元汇率」。`amount` 为 null 的那笔表示有计量项没有价,`knownAmount` 只是下限,读数里记为 `partial`
+2. **charges 缺省或是空数组,才回落到单价表**,按 token 数和单价算
+3. 两条都走不通的(charges 的币种没设汇率,或单价表里没有这个模型),这次调用记为算不出:不计入 `spent`,也不当成 0,列进 `unpriced`
+
+charges 有但没设汇率时**不会**回落到单价表。单价表是挂牌价,和 provider 实际扣的可能差很多(比如命中缓存的价),回落过去会把花费算错,所以宁可标成算不出,提醒你把汇率填上。
+
+**美元汇率要自己填。** 本扩展不联网,查不了汇率,缺省是 0(没设)。在通用配置的 `worlds.budget-alert.usdToCny` 或「设置」面板里填,比如 1 美元 = 7.1 元就填 7.1。
+
 ## 单价表怎么改
 
-单价单位是**人民币元 / 百万 token**,三个价:
+单价表只给没有 charges 的记录用。单价单位是**人民币元 / 百万 token**,三个价:
 
 ```json
 {
@@ -75,8 +89,6 @@ Cortico World 扩展(api 6)。读本机的 usage 账本,按单价表算出今天
 2. 直接编辑 `data/budget-alert/pricing.json`,下一次检查(最多 60 秒)就生效
 
 包里自带的 `src/pricing.json` 只是示例价格,**装好后请按你自己的账单改**。表里没有的模型不会按 0 算,而是列进 `unpriced` 提醒你补价格。
-
-费用只按 token 数和单价表折算。账本里 World 自报的 `charges` 字段(可能是别的币种)没有计入。
 
 ## 告警为什么只响一次
 
@@ -106,9 +118,9 @@ Cortico World 扩展(api 6)。读本机的 usage 账本,按单价表算出今天
 ## 面板
 
 - **今天**:已花、日预算、还剩(超了就显示超出多少),告警线进度,按模型拆分的调用数、token 和花费,按小时的花费,每 60 秒刷新
-- **设置**:日预算、告警线(写百分数,如 `80, 100`),单价表编辑
+- **设置**:日预算、告警线(写百分数,如 `80, 100`)、美元汇率,单价表编辑
 
-日预算也在通用配置里(`worlds.budget-alert.dailyYuan`),改了立即生效。告警线是数组,通用配置表单改不了,所以放在「设置」面板里。
+日预算和美元汇率也在通用配置里(`worlds.budget-alert.dailyYuan`、`worlds.budget-alert.usdToCny`),改了立即生效。告警线是数组,通用配置表单改不了,所以放在「设置」面板里。
 
 ## 开发
 
@@ -118,7 +130,10 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
 npm test            # vitest:计价、告警状态机、增量读、事件只推一次
 npm run check       # 以上全部 + 用 cortico 自带的 dry-mount 核对
+npm run verify      # 不重新打包,只核对:tsc、eslint、vitest、dry-mount、describe.json 一致
 ```
+
+检查脚本和测试都在安装包里。从安装包复现:解压或进到装好的包目录,`npm install` 装上 devDependencies,再跑 `npm run verify`。
 
 ## 许可
 

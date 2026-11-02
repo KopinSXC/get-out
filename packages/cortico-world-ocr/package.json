@@ -1,18 +1,39 @@
 {
   "name": "cortico-world-ocr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "用 Windows 自带 OCR 读屏幕文字,不调视觉模型,省 token。",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
-  "engines": { "node": ">=22" },
-  "keywords": ["cortico-world", "ocr", "screen", "windows"],
-  "files": ["src", "dist", "describe.json", "README.md", "CHANGELOG.md", "LICENSE"],
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "cortico-world",
+    "ocr",
+    "screen",
+    "windows"
+  ],
+  "files": [
+    "src",
+    "dist",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "scripts",
+    "test",
+    "tsconfig.json",
+    "eslint.config.js"
+  ],
   "cortico": {
     "kind": "world",
     "api": 6,
     "displayName": "屏幕 OCR",
-    "tags": ["utility", "vision"],
+    "tags": [
+      "utility",
+      "vision"
+    ],
     "describe": "describe.json",
     "webUiClient": "./dist/webui.js",
     "webUiStyle": "./dist/webui.css"
@@ -22,7 +43,8 @@
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "npm run build && npm run typecheck && npm run lint && npm test && tsx scripts/check-extension.ts"
+    "check": "npm run build && npm run typecheck && npm run lint && npm test && tsx scripts/check-extension.ts",
+    "verify": "tsc --noEmit -p . && eslint . && vitest run && tsx scripts/check-extension.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

@@ -12,7 +12,7 @@ import type { DeepPartial } from 'cortico/world.ts';
 import { nowIso } from 'cortico/core/util.ts';
 import {
   LedgerReader, aggregate, evaluate, normalizeLevels, parsePricing, problemText,
-  type DaySpend, type PricingTable,
+  type DaySpend, type PricingTable, type Rates,
 } from './budget.ts';
 
 export const WORLD_ID = 'budget-alert';
@@ -27,16 +27,18 @@ export interface BudgetConfig {
   dailyYuan: number;
   /** 占预算的比例,1.0 = 100%。 */
   alertAt: number[];
+  /** 1 美元折合多少人民币,用来折算账本里的美元 charges;0 = 没设,美元 charges 算不出、不计入 spent。 */
+  usdToCny: number;
 }
 
 export function defaultConfig(): BudgetConfig {
-  return { enabled: false, dailyYuan: 0, alertAt: [...DEFAULT_LEVELS] };
+  return { enabled: false, dailyYuan: 0, alertAt: [...DEFAULT_LEVELS], usdToCny: 0 };
 }
 
 export const TOOL_SPECS: readonly ToolSpec[] = [
   {
     name: 'budget_status',
-    description: '查今天(部署时区)的模型花费:spent 已花、budget 日预算、remaining 剩余(人民币元),byModel 按模型拆分,byHour 是 24 小时每小时花费。数据来自本机 usage 账本,按单价表折算;没有单价的模型列在 unpriced 里,不计入 spent。账本不存在或格式坏了时返回 ok:false 和原因。',
+    description: '查今天(部署时区)的模型花费:spent 已花、budget 日预算、remaining 剩余(人民币元),byModel 按模型拆分,byHour 是 24 小时每小时花费。数据来自本机 usage 账本:记录里有 provider 实扣的 charges 就按它(美元按配置的汇率折算),没有才按单价表折算;算不出的模型列在 unpriced 里,不计入 spent。basis 给出各种计费方式的调用数。账本不存在或格式坏了时返回 ok:false 和原因。',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     tags: ['read', 'snapshot'],
   },
@@ -208,6 +210,11 @@ export class BudgetWorld implements World {
     return typeof v === 'string' ? [...DEFAULT_LEVELS] : v;
   }
 
+  rates(): Rates {
+    const usd = Number(this.cfg.usdToCny);
+    return Number.isFinite(usd) && usd > 0 ? { USD: usd } : {};
+  }
+
   budget(): number | null {
     const b = Number(this.cfg.dailyYuan);
     return Number.isFinite(b) && b > 0 ? b : null;
@@ -224,7 +231,7 @@ export class BudgetWorld implements World {
       } catch (err) {
         return { ok: false as const, reason: errMsg(err) };
       }
-      const day = aggregate(snap.date, snap.records, pricing);
+      const day = aggregate(snap.date, snap.records, pricing, this.rates());
       const budget = this.budget();
       const levels = this.levels();
       const prev = await this.loadState();
@@ -301,7 +308,7 @@ export class BudgetWorld implements World {
       schema: {
         type: 'object',
         title: '预算告警',
-        description: '告警线和单价表在「设置」面板里改。',
+        description: '告警线、单价表在「设置」面板里改。',
         properties: {
           [`${CFG}.dailyYuan`]: {
             type: 'number',
@@ -311,6 +318,16 @@ export class BudgetWorld implements World {
             maximum: 1000000,
             multipleOf: 0.01,
             'x-suffix': '元',
+            'x-hot': true,
+          },
+          [`${CFG}.usdToCny`]: {
+            type: 'number',
+            title: '美元汇率',
+            description: '1 美元折合多少人民币,用来折算账本里 provider 按美元实扣的 charges。0 = 没设:美元 charges 算不出,不计入花费,并列进 unpriced。本扩展不联网,汇率要你自己填。',
+            minimum: 0,
+            maximum: 100,
+            multipleOf: 0.0001,
+            'x-suffix': '元/美元',
             'x-hot': true,
           },
         },
@@ -342,7 +359,7 @@ export class BudgetWorld implements World {
               pricingText = await readFile(this.pricingOverridePath, 'utf8').catch(() => '');
             }
             return {
-              dailyYuan: this.cfg.dailyYuan, alertAt: this.levels(), pricingText, source,
+              dailyYuan: this.cfg.dailyYuan, alertAt: this.levels(), usdToCny: this.cfg.usdToCny, pricingText, source,
               ...(pricingError ? { pricingError } : {}), ledgerPath: this.ledgerPath, overridePath: this.pricingOverridePath,
             };
           }

@@ -1,0 +1,35 @@
+{
+  "name": "cortico-world-snapshot",
+  "version": "0.1.0",
+  "description": "给 World 工作区做时间点快照:创建、列出、回滚、删除。",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "engines": { "node": ">=22" },
+  "keywords": ["cortico-world", "snapshot", "backup"],
+  "files": ["src", "dist", "describe.json", "README.md", "LICENSE"],
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "工作区快照",
+    "tags": ["utility", "backup"],
+    "describe": "describe.json",
+    "webUiClient": "./dist/webui.js",
+    "webUiStyle": "./dist/webui.css"
+  },
+  "scripts": {
+    "build": "esbuild src/webui.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=dist/webui.js && node scripts/describe.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "eslint .",
+    "check": "npm run build && npm run typecheck && npm run lint"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "cortico": "^0.2.12",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.17.0",
+    "@eslint/js": "^9.17.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0"
+  }
+}

@@ -13,16 +13,18 @@ const CFG = `worlds.${WORLD_ID}`;
 
 export interface SnapshotConfig {
   enabled: boolean;
-  /** 工作区根;留空 = 部署目录。相对路径按部署目录解析。 */
+  /** 工作区根;相对路径按部署目录解析。缺省 workspace;留空 = 整个部署目录。 */
   root: string;
   /** 普通快照最多保留几个。 */
   maxSnapshots: number;
 }
 
 export const DEFAULT_MAX_SNAPSHOTS = 30;
+/** 缺省只拍部署目录下的 workspace/,不碰 config.json、.env、data/ 和别家的 snapshots/。 */
+export const DEFAULT_ROOT = 'workspace';
 
 export function defaultConfig(): SnapshotConfig {
-  return { enabled: false, root: '', maxSnapshots: DEFAULT_MAX_SNAPSHOTS };
+  return { enabled: false, root: DEFAULT_ROOT, maxSnapshots: DEFAULT_MAX_SNAPSHOTS };
 }
 
 export const TOOL_SPECS: readonly ToolSpec[] = [
@@ -188,7 +190,7 @@ export class SnapshotWorld implements World {
           [`${CFG}.root`]: {
             type: 'string',
             title: '工作区根',
-            description: '要拍快照的目录,快照存在它下面的 snapshots/。留空 = 部署目录;相对路径按部署目录解析。',
+            description: '要拍快照的目录,快照存在它下面的 snapshots/。相对路径按部署目录解析,缺省 workspace。留空 = 整个部署目录(会包含 config.json、data/,回滚会改到它们)。',
             'x-path': { kind: 'directory' },
             'x-hot': true,
           },

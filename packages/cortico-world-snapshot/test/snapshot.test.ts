@@ -137,6 +137,14 @@ describe('回滚不碰 .env', () => {
   });
 });
 
+describe('工作区根', () => {
+  it('不存在时拒绝拍快照,也不会顺手建出来', async () => {
+    const s = new SnapshotStore({ root: join(root, 'nope'), timezone: 'Asia/Shanghai', maxSnapshots: () => 30 });
+    await expect(s.create()).rejects.toThrow(/不存在/);
+    await expect(stat(join(root, 'nope'))).rejects.toThrow();
+  });
+});
+
 describe('list / delete', () => {
   it('时间倒序,最多 20 条', async () => {
     const s = store();
@@ -196,7 +204,7 @@ describe('restore', () => {
     expect((await readdir(join(root, 'snapshots'))).some((d) => d.startsWith('pre-restore-'))).toBe(false);
   });
 
-  it('不经符号链接写到工作区外', async () => {
+  it('不经符号链接写到工作区外', async (t) => {
     const outside = await mkdtemp(join(tmpdir(), 'snapout-'));
     try {
       const s = store();
@@ -204,7 +212,13 @@ describe('restore', () => {
       const snap = await s.create();
       tick();
       await rm(join(root, 'linked'), { recursive: true });
-      await symlink(outside, join(root, 'linked'));
+      // Windows 上用 junction:普通用户不开开发者模式也能建;其他平台忽略这个参数
+      try {
+        await symlink(outside, join(root, 'linked'), 'junction');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EPERM') t.skip();
+        throw err;
+      }
       const r = await s.restore(snap.id);
       expect(r.errors.map((e) => e.path)).toContain('linked/f.txt');
       expect(await readdir(outside)).toEqual([]);

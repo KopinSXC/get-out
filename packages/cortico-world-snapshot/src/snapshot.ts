@@ -295,6 +295,7 @@ export class SnapshotStore {
   /** 拍一份快照:先写 manifest(complete=false),拷完再补全。 */
   private async capture(prefix: '' | typeof PRE_RESTORE_PREFIX, note?: string): Promise<Manifest> {
     const at = this.now();
+    if ((await kindOf(this.root)) !== 'dir') throw new Error(`工作区根不存在或不是目录: ${this.root}`);
     const { id, dir } = await this.claimDir(`${prefix}${stamp(this.timezone, at)}`);
     try {
       const { files, skipped } = await this.scan();

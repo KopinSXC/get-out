@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-snapshot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "给工作区做时间点快照:创建、列出、回滚、删除。",
   "license": "MIT",
   "type": "module",

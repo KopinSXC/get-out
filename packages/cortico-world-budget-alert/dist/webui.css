@@ -1,0 +1,6 @@
+/* 只补宿主原语没有的排布;颜色与字体沿用宿主主题。 */
+.budgetwl + .budgetwl { margin-top: 12px; }
+.budgetwl .progress { margin: 10px 0; }
+.budgetwl textarea.field { width: 100%; box-sizing: border-box; }
+.budgetwl .budgetwl-path { word-break: break-all; }
+.budgetwl .budgetwl-foot { opacity: 0.7; margin-top: 8px; }

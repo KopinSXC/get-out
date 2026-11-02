@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "name": "budget_status",
+      "description": "查今天(部署时区)的模型花费:spent 已花、budget 日预算、remaining 剩余(人民币元),byModel 按模型拆分,byHour 是 24 小时每小时花费。数据来自本机 usage 账本,按单价表折算;没有单价的模型列在 unpriced 里,不计入 spent。账本不存在或格式坏了时返回 ok:false 和原因。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "tags": [
+        "read",
+        "snapshot"
+      ],
+      "summary": "看今天花了多少钱、还剩多少、按模型拆分"
+    },
+    {
+      "name": "budget_set",
+      "description": "设置日预算和告警线。alertAt 是占预算的比例数组,1.0 = 100%,不给就保留现在的(缺省 [0.8, 1.0])。每条线只在花费越过时提醒一次,回落到线下再越过才会再提醒。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dailyYuan": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000,
+            "description": "日预算,人民币元"
+          },
+          "alertAt": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 10
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "告警线,占预算的比例,如 [0.5, 0.8, 1.0]"
+          }
+        },
+        "required": [
+          "dailyYuan"
+        ],
+        "additionalProperties": false
+      },
+      "tags": [
+        "write"
+      ],
+      "summary": "设置日预算和告警线"
+    }
+  ],
+  "events": [
+    {
+      "type": "cortico-world.budget-alert",
+      "description": "今天的花费越过某条告警线时推一次,meta 带 {level, spent, budget, ts};同一条线回落后再越过才会再推",
+      "trigger": "flush"
+    }
+  ]
+}

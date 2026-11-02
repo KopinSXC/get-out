@@ -1,0 +1,74 @@
+{
+  "tools": [
+    {
+      "name": "ocr_screen",
+      "description": "用 Windows 自带 OCR 读屏幕上的文字,不发图片、不调视觉模型。返回按行合并的纯文本,每行前面是 x,y,w,h(屏幕原始像素)。只能读文字:图标、颜色、勾选状态、图片内容都读不到。超过 8000 字会截断并注明位置,可以用 region 缩小范围。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "object",
+            "description": "只识别这块屏幕区域,屏幕原始像素坐标(多显示器时可为负)。不给就按配置截前台窗口或其所在显示器。",
+            "properties": {
+              "x": {
+                "type": "integer"
+              },
+              "y": {
+                "type": "integer"
+              },
+              "w": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "h": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "w",
+              "h"
+            ],
+            "additionalProperties": false
+          },
+          "scale": {
+            "type": "number",
+            "minimum": 0.25,
+            "maximum": 4,
+            "description": "识别前的缩放倍数,小字可以给 2;最终长边不超过 1600"
+          }
+        },
+        "additionalProperties": false
+      },
+      "tags": [
+        "read"
+      ],
+      "summary": "用本机 OCR 把屏幕文字读成带坐标的纯文本"
+    },
+    {
+      "name": "ocr_find",
+      "description": "在屏幕文字里找某段字,返回每处匹配的 x,y,w,h 和中心点(屏幕原始像素),用来定位按钮、菜单项、输入框标签。pattern 按不区分大小写的正则匹配,不是合法正则就当普通文字。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "要找的文字或正则,如「确定」「保存|Save」"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      },
+      "tags": [
+        "read"
+      ],
+      "summary": "在屏幕上找一段文字的位置"
+    }
+  ],
+  "events": []
+}

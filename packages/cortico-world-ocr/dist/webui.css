@@ -1,0 +1,5 @@
+/* 只补宿主原语没有的排布;颜色与字体沿用宿主主题。 */
+.ocrwl .ocrwl-state { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ocrwl .ocrwl-pattern { flex: 1 1 240px; min-width: 0; }
+.ocrwl .ocrwl-out { white-space: pre; overflow: auto; max-height: calc(100vh - 320px); margin: 8px 0 0; }
+.ocrwl .ocrwl-out:empty { display: none; }

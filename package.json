@@ -2,7 +2,9 @@
   "name": "get-out-workspace",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "check": "npm run check --workspaces",
     "build": "npm run build --workspaces"
@@ -13,7 +15,9 @@
     "cortico": "^0.2.12",
     "esbuild": "^0.24.0",
     "eslint": "^9.17.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.0"
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^3.2.7"
   }
 }

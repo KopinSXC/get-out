@@ -1,0 +1,79 @@
+{
+  "tools": [
+    {
+      "name": "snapshot_create",
+      "description": "给当前工作区拍一份时间点快照(完整拷贝,跳过 node_modules、.git、tmp-*、snapshots/ 本身、超过 100MB 的单文件和 archive/ 里超过 50MB 的文件)。返回快照 id 和统计。超出保留上限时会删掉最旧的普通快照。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "可选备注,说明为什么拍这份"
+          }
+        },
+        "additionalProperties": false
+      },
+      "tags": [
+        "write"
+      ],
+      "summary": "拍一份工作区快照"
+    },
+    {
+      "name": "snapshot_list",
+      "description": "列出最近 20 份快照,按时间倒序,每条含 id、createdAt、note、fileCount、totalBytes。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "tags": [
+        "read",
+        "snapshot"
+      ],
+      "summary": "列出最近的快照"
+    },
+    {
+      "name": "snapshot_restore",
+      "description": "把工作区回滚到指定快照。会先把当前状态自动备份为 pre-restore-<时间戳>,然后逐个文件补上、覆盖、删除;不会整目录删除,快照当时跳过的文件不碰。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "快照 id,来自 snapshot_list"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "tags": [
+        "act"
+      ],
+      "summary": "先备份当前状态,再回滚到某份快照"
+    },
+    {
+      "name": "snapshot_delete",
+      "description": "删除一份快照的整个目录,不可恢复。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "快照 id,来自 snapshot_list"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "tags": [
+        "write"
+      ],
+      "summary": "删除一份快照"
+    }
+  ],
+  "events": []
+}

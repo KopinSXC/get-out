@@ -1,0 +1,5 @@
+/* 只补宿主原语没有的排布;颜色与字体全部沿用宿主主题。 */
+.snapwl .snapwl-root { opacity: 0.75; word-break: break-all; }
+.snapwl .snapwl-id { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.snapwl .snapwl-note { flex-basis: 100%; opacity: 0.75; font-size: 0.92em; }
+.snapwl .snapwl-ops { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
